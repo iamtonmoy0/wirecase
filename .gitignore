@@ -5,3 +5,7 @@
 /wirecase
 /wirecase.exe
 /dist/
+
+# Local signing secrets.
+/wirecase-agent-private.pem
+*-private.pem

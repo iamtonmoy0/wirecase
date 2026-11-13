@@ -2,7 +2,7 @@
 
 **The Git for Internet failures.** Capture a network problem as a portable case, share it, and compare what happens from another network or machine.
 
-WIRECASE is an offline-first Go command-line tool. Its first release captures DNS, TCP, TLS, and HTTP evidence in a readable `.wcase` JSON file, then compares two captures.
+WIRECASE is an offline-first Go command-line tool. It captures DNS, TCP, IPv6, TLS, and HTTP evidence in a portable `.wcase` capsule, compares captures, suggests likely failure layers, and creates offline HTML reports.
 
 ## Quick start
 
@@ -10,8 +10,10 @@ Requires Go 1.22 or newer. No external services or Go dependencies are required.
 
 ```powershell
 go run . capture --output home-wifi.wcase example.com
-go run . capture --output mobile.wcase https://example.com
+go run . capture --output mobile.wcase example.com
 go run . diff home-wifi.wcase mobile.wcase
+go run . diagnose home-wifi.wcase
+go run . report --output home-wifi.html home-wifi.wcase
 ```
 
 Build a local executable:
@@ -29,6 +31,9 @@ Targets without a scheme use HTTPS. Use an `http://` URL for a plain HTTP endpoi
 wirecase capture [--output file.wcase] [--timeout 5s] <host-or-url>
 wirecase diff <baseline.wcase> <comparison.wcase>
 wirecase inspect <file.wcase>
+wirecase scrub [--redact-addresses] <input.wcase> <output.wcase>
+wirecase diagnose <file.wcase>
+wirecase report --output report.html <file.wcase>
 wirecase version
 ```
 
@@ -36,13 +41,38 @@ Capture exits successfully when the case was saved, even if an individual networ
 
 ## Case format and privacy
 
-A `.wcase` file is UTF-8 JSON with a schema version, random case ID, UTC capture time, target, and probe results. It does not collect local interface details, machine identity, request headers, or response bodies. DNS answers and the requested URL are included, so review a case before sharing it. The HTTP check follows up to five redirects and records the final response status and protocol.
+A `.wcase` file is a ZIP archive containing one `case.json` manifest with a schema version, random case ID, UTC capture time, target, and probe results. Earlier plain JSON case files remain readable. The format is size bounded and validated when loaded. It does not collect local interface details, machine identity, request headers, or response bodies. DNS answers, the requested URL (including its query), and probe errors are included, so review a case before sharing it.
+
+Create a scrubbed copy before sharing:
+
+```powershell
+go run . scrub --redact-addresses home-wifi.wcase shareable.wcase
+```
+
+Scrubbing removes URL query and fragment data. `--redact-addresses` also masks IP values in probe details. Diagnosis uses transparent rules and labels output as likely explanations, not proof. HTML reports are standalone and work without a network connection.
+
+## Signed one-shot agents
+
+WIRECASE can prepare a narrowly scoped, signed job for another WIRECASE user to run:
+
+```powershell
+go run . agent keygen --private signer-private.pem --public signer-public.pem
+go run . agent create-job --private-key signer-private.pem --target https://example.com --output job.json
+```
+
+Share `job.json` and the public key with the volunteer using a trusted channel. The volunteer explicitly allows the exact hostname and supplies a non-identifying vantage label:
+
+```powershell
+go run . agent run-job --public-key signer-public.pem --job job.json --allow-host example.com --label mobile --output mobile.wcase
+```
+
+Jobs use Ed25519 signatures, expire within seven days, and are limited to DNS, TCP, IPv6, TLS, and one HTTP GET to the host root. The HTTP check does not follow redirects. Probe timeouts are capped at 15 seconds. An agent is a single-shot local command: it opens no listener, runs no shell commands, and contacts no coordinator. Each operator decides which hostname to allow. Keep the private signing key secret; the public key alone cannot authorize a job.
 
 ## Current scope
 
-Implemented: DNS lookup, TCP connect, verified TLS handshake, HTTP request, portable JSON cases, case inspection, and evidence comparison.
+Implemented: DNS lookup, TCP connect, IPv6 connection checks, verified TLS handshake, HTTP request timing, bounded `.wcase` archives, legacy case reading, case validation, privacy scrubbing, deterministic evidence comparison, rule-based diagnosis, offline HTML reports, and signed one-shot jobs.
 
-Planned: richer timing breakdowns, privacy scrubbing, failure explanations, offline HTML reports, IPv6-specific and route probes, and signed remote vantage jobs. WIRECASE does not currently perform traceroute or infer root causes.
+Planned: traceroute (requires platform-specific raw-socket support) and optional coordination for collecting volunteer results. WIRECASE does not infer definitive root causes; its local rules provide evidence-linked hints.
 
 ## Development
 
@@ -50,7 +80,7 @@ Planned: richer timing breakdowns, privacy scrubbing, failure explanations, offl
 go build ./...
 ```
 
-The core uses only the Go standard library. See [docs/architecture.md](docs/architecture.md) for component boundaries and the case schema.
+The core uses only the Go standard library. See [docs/architecture.md](docs/architecture.md) for component boundaries, the case schema, and the signed-job model.
 
 ## License
 
