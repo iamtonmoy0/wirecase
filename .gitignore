@@ -1,5 +1,6 @@
 # Local diagnostic captures may contain private DNS answers and URLs.
-*.wcase
+/*.wcase
+/captures/
 
 # Go build outputs.
 /wirecase
@@ -9,3 +10,4 @@
 # Local signing secrets.
 /wirecase-agent-private.pem
 *-private.pem
+*-public.pem

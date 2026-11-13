@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "11111111111111111111111111111111",
+  "illustrative": true,
+  "captured_at": "2026-01-15T12:00:00Z",
+  "target": "https://missing.example.test",
+  "host": "missing.example.test",
+  "port": "443",
+  "results": [
+    {"name":"dns","status":"failed","duration_ms":21,"error":"lookup missing.example.test: no such host"},
+    {"name":"tcp","status":"failed","error":"skipped because DNS resolution failed"},
+    {"name":"ipv6","status":"skipped","error":"skipped because DNS resolution failed"},
+    {"name":"tls","status":"failed","duration_ms":22,"error":"lookup missing.example.test: no such host"},
+    {"name":"http","status":"failed","duration_ms":30,"error":"Get https://missing.example.test: no such host"}
+  ]
+}

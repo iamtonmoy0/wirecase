@@ -1,0 +1,20 @@
+services:
+  http-503:
+    build:
+      context: ./examples/scenarios
+    networks:
+      - wirecase-demo
+
+  wirecase:
+    build: .
+    command: ["capture", "--output", "/captures/http-503.wcase", "http://http-503:8080"]
+    depends_on:
+      - http-503
+    volumes:
+      - ./captures:/captures
+    networks:
+      - wirecase-demo
+
+networks:
+  wirecase-demo:
+    internal: true

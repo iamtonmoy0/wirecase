@@ -19,7 +19,7 @@ import (
 	"github.com/iamtonmoy0/wirecase/internal/report"
 )
 
-const version = "0.2.0"
+var version = "0.2.0"
 
 func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {

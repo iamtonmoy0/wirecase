@@ -23,6 +23,18 @@ go build -o wirecase.exe .
 ./wirecase.exe capture example.com
 ```
 
+## Reproduce a failure locally
+
+The Docker Compose demo runs an isolated HTTP service that intentionally returns `503`, captures it, and saves the case under `captures/`:
+
+```powershell
+docker compose up --build --abort-on-container-exit wirecase
+docker compose run --rm --no-deps wirecase diagnose /captures/http-503.wcase
+docker compose down
+```
+
+The demo network has no external route. Prebuilt illustrative cases are in [examples/dns-failure](examples/dns-failure/) and [examples/ipv6-failure](examples/ipv6-failure/); they are fixtures, not measurements from a live network.
+
 Targets without a scheme use HTTPS. Use an `http://` URL for a plain HTTP endpoint. Each network probe has a five-second timeout by default; change it with `--timeout 10s`.
 
 ## Commands
@@ -79,6 +91,8 @@ Planned: traceroute (requires platform-specific raw-socket support) and optional
 ```powershell
 go build ./...
 ```
+
+`make build` creates a local binary; `make check` compiles every package. GitHub Actions compiles on Linux, macOS, and Windows against Go 1.22 and the current stable Go release. Pushing a `v*` tag builds release archives for Linux, macOS, and Windows on amd64 and arm64.
 
 The core uses only the Go standard library. See [docs/architecture.md](docs/architecture.md) for component boundaries, the case schema, and the signed-job model.
 

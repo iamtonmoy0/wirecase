@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +20,9 @@ const SchemaVersion = 1
 const maxCaseSize = 16 << 20
 const manifestName = "case.json"
 
+var ipv4Pattern = regexp.MustCompile(`\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b`)
+var bracketedIPv6Pattern = regexp.MustCompile(`\[[0-9a-fA-F:]+\]`)
+
 // Case is one self-contained diagnostic capture. It does not contain local
 // interface or machine identity data.
 type Case struct {
@@ -25,6 +30,7 @@ type Case struct {
 	ID            string        `json:"id"`
 	JobID         string        `json:"job_id,omitempty"`
 	Vantage       string        `json:"vantage,omitempty"`
+	Illustrative  bool          `json:"illustrative,omitempty"`
 	CapturedAt    time.Time     `json:"captured_at"`
 	Target        string        `json:"target"`
 	Host          string        `json:"host"`
@@ -195,12 +201,27 @@ func Scrub(c Case, redactAddresses bool) Case {
 	out := c
 	if u, err := url.Parse(out.Target); err == nil {
 		u.RawQuery, u.ForceQuery, u.Fragment, u.RawFragment = "", false, "", ""
+		if redactAddresses && net.ParseIP(out.Host) != nil {
+			port := u.Port()
+			out.Host = "redacted.invalid"
+			u.Host = out.Host
+			if port != "" {
+				u.Host = net.JoinHostPort(out.Host, port)
+			}
+		}
 		out.Target = u.String()
 	}
 	out.Results = append([]ProbeResult(nil), c.Results...)
 	for i := range out.Results {
 		out.Results[i].Error = strings.ReplaceAll(out.Results[i].Error, c.Target, out.Target)
 		if redactAddresses {
+			out.Results[i].Error = ipv4Pattern.ReplaceAllString(out.Results[i].Error, "[redacted]")
+			out.Results[i].Error = bracketedIPv6Pattern.ReplaceAllStringFunc(out.Results[i].Error, func(value string) string {
+				if net.ParseIP(strings.Trim(value, "[]")) != nil {
+					return "[redacted]"
+				}
+				return value
+			})
 			out.Results[i].Details = redactDetailMap(out.Results[i].Details)
 		}
 	}
