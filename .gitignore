@@ -1,0 +1,7 @@
+# Local diagnostic captures may contain private DNS answers and URLs.
+*.wcase
+
+# Go build outputs.
+/wirecase
+/wirecase.exe
+/dist/
