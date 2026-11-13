@@ -19,6 +19,7 @@ func Analyze(c casefile.Case) []Finding {
 	dns, hasDNS := byName["dns"]
 	tcp, hasTCP := byName["tcp"]
 	ipv6, hasIPv6 := byName["ipv6"]
+	route, hasRoute := byName["route"]
 	tls, hasTLS := byName["tls"]
 	http, hasHTTP := byName["http"]
 	if hasDNS && dns.Status == "failed" {
@@ -32,6 +33,9 @@ func Analyze(c casefile.Case) []Finding {
 	}
 	if hasIPv6 && ipv6.Status == "failed" && hasTCP && tcp.Status == "ok" {
 		findings = append(findings, Finding{"IPv6", "medium", "IPv6 could not reach the destination", "The general TCP check succeeded, but the IPv6 connection failed. Compare this result on another network and verify the server's IPv6 listener and route."})
+	}
+	if hasRoute && route.Status == "failed" && hasDNS && dns.Status == "ok" {
+		findings = append(findings, Finding{"Route", "high", "No route is available to the resolved addresses", "DNS succeeded, but the local network stack could not select a route for the returned addresses. Check the active network, VPN, gateway, and local firewall policy."})
 	}
 	if hasHTTP && http.Status == "failed" {
 		findings = append(findings, Finding{"HTTP", "high", "The HTTP request did not complete", "The transport checks did not produce an HTTP response. Review the HTTP error and the preceding probe results."})

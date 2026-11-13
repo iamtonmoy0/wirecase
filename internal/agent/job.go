@@ -23,9 +23,10 @@ import (
 )
 
 const (
-	JobVersion  = 1
-	MaxTimeout  = 15 * time.Second
-	MaxLifetime = 7 * 24 * time.Hour
+	LegacyJobVersion = 1
+	JobVersion       = 2
+	MaxTimeout       = 15 * time.Second
+	MaxLifetime      = 7 * 24 * time.Hour
 )
 
 type Job struct {
@@ -62,7 +63,7 @@ func NewJob(target string, timeout, lifetime time.Duration) (Job, error) {
 		return Job{}, fmt.Errorf("generate job ID: %w", err)
 	}
 	now := time.Now().UTC()
-	return Job{Version: JobVersion, ID: hex.EncodeToString(id[:]), Target: parsed.Value, Probes: []string{"dns", "tcp", "ipv6", "tls", "http"}, TimeoutMS: timeout.Milliseconds(), IssuedAt: now, ExpiresAt: now.Add(lifetime)}, nil
+	return Job{Version: JobVersion, ID: hex.EncodeToString(id[:]), Target: parsed.Value, Probes: []string{"dns", "tcp", "ipv6", "route", "tls", "http"}, TimeoutMS: timeout.Milliseconds(), IssuedAt: now, ExpiresAt: now.Add(lifetime)}, nil
 }
 
 func Sign(job Job, privateKey ed25519.PrivateKey) (SignedJob, error) {
@@ -115,7 +116,12 @@ func Run(signed SignedJob, publicKey ed25519.PublicKey, allowedHost, label strin
 	if label == "" || len(label) > 64 {
 		return casefile.Case{}, fmt.Errorf("vantage label must be 1 to 64 characters")
 	}
-	c, err := probe.CaptureRestricted(context.Background(), target, time.Duration(signed.Job.TimeoutMS)*time.Millisecond)
+	var c casefile.Case
+	if signed.Job.Version == LegacyJobVersion {
+		c, err = probe.CaptureRestrictedLegacy(context.Background(), target, time.Duration(signed.Job.TimeoutMS)*time.Millisecond)
+	} else {
+		c, err = probe.CaptureRestricted(context.Background(), target, time.Duration(signed.Job.TimeoutMS)*time.Millisecond)
+	}
 	if err != nil {
 		return casefile.Case{}, err
 	}
@@ -248,7 +254,7 @@ func writeNewFile(path string, data []byte, mode os.FileMode) error {
 }
 
 func validate(job Job) error {
-	if job.Version != JobVersion {
+	if job.Version != LegacyJobVersion && job.Version != JobVersion {
 		return fmt.Errorf("unsupported job version %d", job.Version)
 	}
 	if len(job.ID) != 32 {
@@ -267,8 +273,12 @@ func validate(job Job) error {
 	if job.TimeoutMS < 1 || time.Duration(job.TimeoutMS)*time.Millisecond > MaxTimeout {
 		return fmt.Errorf("job timeout must be between 1ms and %s", MaxTimeout)
 	}
-	if len(job.Probes) != 5 || strings.Join(job.Probes, ",") != "dns,tcp,ipv6,tls,http" {
-		return errors.New("job must request exactly the supported probes: dns,tcp,ipv6,tls,http")
+	expectedProbes := []string{"dns", "tcp", "ipv6", "tls", "http"}
+	if job.Version == JobVersion {
+		expectedProbes = []string{"dns", "tcp", "ipv6", "route", "tls", "http"}
+	}
+	if strings.Join(job.Probes, ",") != strings.Join(expectedProbes, ",") {
+		return fmt.Errorf("job version %d must request the fixed probe set: %s", job.Version, strings.Join(expectedProbes, ","))
 	}
 	if job.IssuedAt.IsZero() || !job.ExpiresAt.After(job.IssuedAt) || job.ExpiresAt.Sub(job.IssuedAt) > MaxLifetime {
 		return errors.New("job issue and expiry times are invalid")

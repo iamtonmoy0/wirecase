@@ -10,6 +10,7 @@
     {"name":"dns","status":"failed","duration_ms":21,"error":"lookup missing.example.test: no such host"},
     {"name":"tcp","status":"failed","error":"skipped because DNS resolution failed"},
     {"name":"ipv6","status":"skipped","error":"skipped because DNS resolution failed"},
+    {"name":"route","status":"skipped","error":"skipped because DNS resolution failed"},
     {"name":"tls","status":"failed","duration_ms":22,"error":"lookup missing.example.test: no such host"},
     {"name":"http","status":"failed","duration_ms":30,"error":"Get https://missing.example.test: no such host"}
   ]

@@ -8,6 +8,7 @@ CLI (internal/cli)
   │                ├── DNS lookup
   │                ├── TCP connect (dual stack)
   │                ├── IPv6-only connect
+  │                ├── local route selection (UDP, no packet sent)
   │                ├── TLS handshake
   │                └── HTTP request
   ├── case reader/writer (internal/casefile)
@@ -16,7 +17,7 @@ CLI (internal/cli)
   └── compare saved evidence
 ```
 
-The capture flow resolves the target hostname, attempts a TCP connection and an IPv6-only connection to the URL's effective port, checks TLS for HTTPS targets, then issues an HTTP GET. HTTP tracing records DNS, connection, TLS, and first-byte timing when available. Probe errors are recorded as evidence so a partial capture is still useful. Each network check has an independent timeout.
+The capture flow resolves the target hostname, attempts TCP, IPv6-only, and local route-selection checks for the effective port, checks TLS for HTTPS targets, then issues an HTTP GET. UDP connect is used only to ask the OS whether a route can be selected; no UDP packet is sent and no local address is recorded. HTTP tracing records DNS, connection, TLS, and first-byte timing when available. Probe errors are recorded as evidence so a partial capture is still useful. Each network check has an independent timeout.
 
 ## `.wcase` version 1
 
@@ -38,7 +39,7 @@ The scrub operation removes query and fragment values from the target URL and ma
 
 ## Signed jobs
 
-Jobs are Ed25519-signed JSON with a fixed probe list, an HTTP(S) hostname root, a maximum 15-second per-probe timeout, and a maximum seven-day lifetime. A runner verifies the signature and expiration, then requires the operator to allow the exact host on the command line. It runs as a one-shot local command and has no listener, shell, plugin, or coordinator. The public key is the trust anchor; private signing keys must stay with the job issuer.
+Jobs are Ed25519-signed JSON with a versioned fixed probe list, an HTTP(S) hostname root, a maximum 15-second per-probe timeout, and a maximum seven-day lifetime. A runner verifies the signature and expiration, then requires the operator to allow the exact host on the command line. It runs as a one-shot local command and has no listener, shell, plugin, or coordinator. The public key is the trust anchor; private signing keys must stay with the job issuer. Version 1 jobs remain supported without route selection; new jobs use version 2.
 
 ## Boundaries
 

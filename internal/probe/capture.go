@@ -56,15 +56,20 @@ func ParseTarget(value string) (Target, error) {
 }
 
 func Capture(ctx context.Context, target Target, timeout time.Duration) (casefile.Case, error) {
-	return capture(ctx, target, timeout, true)
+	return capture(ctx, target, timeout, true, true)
 }
 
 // CaptureRestricted runs the fixed probe set and does not follow HTTP redirects.
 func CaptureRestricted(ctx context.Context, target Target, timeout time.Duration) (casefile.Case, error) {
-	return capture(ctx, target, timeout, false)
+	return capture(ctx, target, timeout, false, true)
 }
 
-func capture(ctx context.Context, target Target, timeout time.Duration, followRedirects bool) (casefile.Case, error) {
+// CaptureRestrictedLegacy preserves the original signed-job probe set.
+func CaptureRestrictedLegacy(ctx context.Context, target Target, timeout time.Duration) (casefile.Case, error) {
+	return capture(ctx, target, timeout, false, false)
+}
+
+func capture(ctx context.Context, target Target, timeout time.Duration, followRedirects, includeRoute bool) (casefile.Case, error) {
 	var idBytes [16]byte
 	if _, err := rand.Read(idBytes[:]); err != nil {
 		return casefile.Case{}, fmt.Errorf("generate case ID: %w", err)
@@ -73,6 +78,9 @@ func capture(ctx context.Context, target Target, timeout time.Duration, followRe
 	results := []casefile.ProbeResult{dnsResult}
 	results = append(results, tcp(ctx, target, addresses, timeout))
 	results = append(results, ipv6(ctx, target, addresses, timeout))
+	if includeRoute {
+		results = append(results, route(ctx, target, addresses, timeout))
+	}
 	if target.URL.Scheme == "https" {
 		results = append(results, tlsProbe(ctx, target, timeout))
 	} else {
@@ -88,6 +96,51 @@ func capture(ctx context.Context, target Target, timeout time.Duration, followRe
 		Port:          target.Port,
 		Results:       results,
 	}, nil
+}
+
+// route asks the local network stack whether it can select a route to each
+// resolved address. UDP connect selects a route without sending a packet.
+func route(ctx context.Context, target Target, addresses []net.IPAddr, timeout time.Duration) casefile.ProbeResult {
+	start := time.Now()
+	result := casefile.ProbeResult{Name: "route", Status: "failed"}
+	if len(addresses) == 0 {
+		result.Status, result.Error = "skipped", "skipped because DNS resolution failed"
+		return result
+	}
+	families := make(map[string]bool)
+	var lastErr error
+	for _, address := range addresses {
+		network, family := "udp6", "IPv6"
+		if address.IP.To4() != nil {
+			network, family = "udp4", "IPv4"
+		}
+		if families[family] {
+			continue
+		}
+		probeCtx, cancel := context.WithTimeout(ctx, timeout)
+		conn, err := (&net.Dialer{}).DialContext(probeCtx, network, net.JoinHostPort(address.IP.String(), target.Port))
+		cancel()
+		if err == nil {
+			_ = conn.Close()
+			families[family] = true
+		} else {
+			lastErr = err
+		}
+	}
+	result.DurationMS = time.Since(start).Milliseconds()
+	if len(families) > 0 {
+		available := make([]string, 0, len(families))
+		for _, family := range []string{"IPv4", "IPv6"} {
+			if families[family] {
+				available = append(available, family)
+			}
+		}
+		result.Status = "ok"
+		result.Details = map[string]any{"available_families": available}
+	} else if lastErr != nil {
+		result.Error = lastErr.Error()
+	}
+	return result
 }
 
 func ipv6(ctx context.Context, target Target, addresses []net.IPAddr, timeout time.Duration) casefile.ProbeResult {

@@ -129,7 +129,7 @@ func diff(args []string, stdout, stderr io.Writer) int {
 	for _, result := range right.Results {
 		rightByName[result.Name] = result
 	}
-	names, differences := []string{"dns", "tcp", "ipv6", "tls", "http"}, 0
+	names, differences := []string{"dns", "tcp", "ipv6", "route", "tls", "http"}, 0
 	fmt.Fprintf(stdout, "Diagnostic comparison\n  A: %s (%s, %s)\n  B: %s (%s, %s)\n", fs.Arg(0), left.CapturedAt.Format(time.RFC3339), vantage(left), fs.Arg(1), right.CapturedAt.Format(time.RFC3339), vantage(right))
 	for _, name := range names {
 		a, aOK := leftByName[name]
@@ -399,7 +399,7 @@ func safeFilename(host string) string {
 
 func usage(w io.Writer) {
 	fmt.Fprintln(w, "WIRECASE — capture and compare network diagnostics\n\nUsage: wirecase <command> [arguments]\n\nCommands:")
-	fmt.Fprintln(w, "  capture <host-or-url>     Run DNS, TCP, IPv6, TLS, and HTTP probes")
+	fmt.Fprintln(w, "  capture <host-or-url>     Run DNS, TCP, IPv6, route, TLS, and HTTP probes")
 	fmt.Fprintln(w, "  diff <a.wcase> <b.wcase> Compare two diagnostic cases")
 	fmt.Fprintln(w, "  inspect <file.wcase>      Print a case as JSON")
 	fmt.Fprintln(w, "  scrub [options] <in> <out> Remove sensitive case data")

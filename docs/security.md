@@ -10,7 +10,7 @@ Reports are standalone HTML and may contain the same data as the case. Treat the
 
 ## Signed jobs
 
-Only run jobs signed by a key you trust. A runner verifies the Ed25519 signature and expiry, and also requires the operator to allow the exact hostname locally. Jobs have a fixed probe list and bounded timeouts, target only an HTTP(S) host root, issue one GET without following redirects, and cannot run commands. The runner opens no listening socket and does not contact a coordinator.
+Only run jobs signed by a key you trust. A runner verifies the Ed25519 signature and expiry, and also requires the operator to allow the exact hostname locally. Jobs have a versioned fixed probe list and bounded timeouts, target only an HTTP(S) host root, issue one GET without following redirects, and cannot run commands. The runner opens no listening socket and does not contact a coordinator.
 
 Keep the private signing key in a protected location. Share only its public key. A signed job can reveal the target's reachability and DNS answers from the runner's network, so the volunteer should understand the target before running it.
 

@@ -2,7 +2,7 @@
 
 **The Git for Internet failures.** Capture a network problem as a portable case, share it, and compare what happens from another network or machine.
 
-WIRECASE is an offline-first Go command-line tool. It captures DNS, TCP, IPv6, TLS, and HTTP evidence in a portable `.wcase` capsule, compares captures, suggests likely failure layers, and creates offline HTML reports.
+WIRECASE is an offline-first Go command-line tool. It captures DNS, TCP, IPv6, local route availability, TLS, and HTTP evidence in a portable `.wcase` capsule, compares captures, suggests likely failure layers, and creates offline HTML reports.
 
 ## Quick start
 
@@ -82,7 +82,7 @@ Jobs use Ed25519 signatures, expire within seven days, and are limited to DNS, T
 
 ## Current scope
 
-Implemented: DNS lookup, TCP connect, IPv6 connection checks, verified TLS handshake, HTTP request timing, bounded `.wcase` archives, legacy case reading, case validation, privacy scrubbing, deterministic evidence comparison, rule-based diagnosis, offline HTML reports, and signed one-shot jobs.
+Implemented: DNS lookup, TCP connect, IPv6 connection and route-selection checks, verified TLS handshake, HTTP request timing, bounded `.wcase` archives, legacy case reading, case validation, privacy scrubbing, deterministic evidence comparison, rule-based diagnosis, offline HTML reports, and signed one-shot jobs.
 
 Planned: traceroute (requires platform-specific raw-socket support) and optional coordination for collecting volunteer results. WIRECASE does not infer definitive root causes; its local rules provide evidence-linked hints.
 
