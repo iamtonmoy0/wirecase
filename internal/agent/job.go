@@ -3,6 +3,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -14,6 +15,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -102,6 +106,10 @@ func Verify(signed SignedJob, publicKey ed25519.PublicKey, now time.Time) error 
 }
 
 func Run(signed SignedJob, publicKey ed25519.PublicKey, allowedHost, label string, now time.Time) (casefile.Case, error) {
+	return RunContext(context.Background(), signed, publicKey, allowedHost, label, now)
+}
+
+func RunContext(ctx context.Context, signed SignedJob, publicKey ed25519.PublicKey, allowedHost, label string, now time.Time) (casefile.Case, error) {
 	if err := Verify(signed, publicKey, now); err != nil {
 		return casefile.Case{}, err
 	}
@@ -118,9 +126,9 @@ func Run(signed SignedJob, publicKey ed25519.PublicKey, allowedHost, label strin
 	}
 	var c casefile.Case
 	if signed.Job.Version == LegacyJobVersion {
-		c, err = probe.CaptureRestrictedLegacy(context.Background(), target, time.Duration(signed.Job.TimeoutMS)*time.Millisecond)
+		c, err = probe.CaptureRestrictedLegacy(ctx, target, time.Duration(signed.Job.TimeoutMS)*time.Millisecond)
 	} else {
-		c, err = probe.CaptureRestricted(context.Background(), target, time.Duration(signed.Job.TimeoutMS)*time.Millisecond)
+		c, err = probe.CaptureRestricted(ctx, target, time.Duration(signed.Job.TimeoutMS)*time.Millisecond)
 	}
 	if err != nil {
 		return casefile.Case{}, err
@@ -135,7 +143,18 @@ func LoadSignedJob(path string) (SignedJob, error) {
 		return SignedJob{}, err
 	}
 	defer f.Close()
-	dec := json.NewDecoder(io.LimitReader(f, 1<<20))
+	data, err := io.ReadAll(io.LimitReader(f, (1<<20)+1))
+	if err != nil {
+		return SignedJob{}, err
+	}
+	if len(data) > 1<<20 {
+		return SignedJob{}, fmt.Errorf("signed job exceeds 1 MiB")
+	}
+	return DecodeSignedJob(data)
+}
+
+func DecodeSignedJob(data []byte) (SignedJob, error) {
+	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	var signed SignedJob
 	if err := dec.Decode(&signed); err != nil {
@@ -146,6 +165,79 @@ func LoadSignedJob(path string) (SignedJob, error) {
 		return SignedJob{}, fmt.Errorf("job has unexpected trailing data")
 	}
 	return signed, nil
+}
+
+// Join fetches a signed job from a token-protected coordinator, verifies it,
+// runs the bounded probes, and posts the resulting capsule.
+func Join(ctx context.Context, serverURL, token string, publicKey ed25519.PublicKey, allowedHost, label string) (casefile.Case, error) {
+	base, err := url.Parse(serverURL)
+	if err != nil || base.Host == "" || (base.Scheme != "https" && base.Scheme != "http") || base.User != nil || base.RawQuery != "" || base.Fragment != "" || (base.Path != "" && base.Path != "/") {
+		return casefile.Case{}, fmt.Errorf("coordinator URL must be an HTTP(S) origin without credentials, path, or query")
+	}
+	if base.Scheme != "https" && !isLoopbackHost(base.Hostname()) {
+		return casefile.Case{}, fmt.Errorf("coordinator connections must use HTTPS except on loopback")
+	}
+	if len(token) < 32 {
+		return casefile.Case{}, fmt.Errorf("coordinator token must contain at least 32 characters")
+	}
+	base.Path = ""
+	client := &http.Client{Timeout: 2 * time.Minute, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(base.String(), "/")+"/v1/job", nil)
+	if err != nil {
+		return casefile.Case{}, err
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, err := client.Do(request)
+	if err != nil {
+		return casefile.Case{}, fmt.Errorf("fetch coordinator job: %w", err)
+	}
+	jobData, readErr := io.ReadAll(io.LimitReader(response.Body, (1<<20)+1))
+	response.Body.Close()
+	if readErr != nil {
+		return casefile.Case{}, readErr
+	}
+	if response.StatusCode != http.StatusOK {
+		return casefile.Case{}, fmt.Errorf("coordinator returned %s", response.Status)
+	}
+	if len(jobData) > 1<<20 {
+		return casefile.Case{}, fmt.Errorf("coordinator job exceeds 1 MiB")
+	}
+	signed, err := DecodeSignedJob(jobData)
+	if err != nil {
+		return casefile.Case{}, err
+	}
+	result, err := RunContext(ctx, signed, publicKey, allowedHost, label, time.Now())
+	if err != nil {
+		return casefile.Case{}, err
+	}
+	caseData, err := casefile.Marshal(result)
+	if err != nil {
+		return casefile.Case{}, err
+	}
+	request, err = http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(base.String(), "/")+"/v1/results", bytes.NewReader(caseData))
+	if err != nil {
+		return casefile.Case{}, err
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("Content-Type", "application/vnd.wirecase+zip")
+	response, err = client.Do(request)
+	if err != nil {
+		return casefile.Case{}, fmt.Errorf("submit coordinator result: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusCreated {
+		message, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+		return casefile.Case{}, fmt.Errorf("coordinator rejected result: %s: %s", response.Status, strings.TrimSpace(string(message)))
+	}
+	return result, nil
+}
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func WriteSignedJob(path string, signed SignedJob) error {

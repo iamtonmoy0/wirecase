@@ -17,7 +17,8 @@ import (
 )
 
 const SchemaVersion = 1
-const maxCaseSize = 16 << 20
+const MaxEncodedSize = 16 << 20
+const maxCaseSize = MaxEncodedSize
 const manifestName = "case.json"
 
 var ipv4Pattern = regexp.MustCompile(`\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b`)
@@ -47,17 +48,29 @@ type ProbeResult struct {
 }
 
 func Write(path string, c Case) error {
-	if err := Validate(c); err != nil {
+	data, err := Marshal(c)
+	if err != nil {
 		return err
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("write case: %w", err)
+	}
+	return nil
+}
+
+// Marshal encodes a case as a bounded, deterministic .wcase ZIP capsule.
+func Marshal(c Case) ([]byte, error) {
+	if err := Validate(c); err != nil {
+		return nil, err
 	}
 	var data bytes.Buffer
 	enc := json.NewEncoder(&data)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(c); err != nil {
-		return fmt.Errorf("encode case: %w", err)
+		return nil, fmt.Errorf("encode case: %w", err)
 	}
 	if data.Len() > maxCaseSize {
-		return fmt.Errorf("case exceeds maximum size of %d bytes", maxCaseSize)
+		return nil, fmt.Errorf("case exceeds maximum size of %d bytes", maxCaseSize)
 	}
 	var archive bytes.Buffer
 	zw := zip.NewWriter(&archive)
@@ -66,36 +79,54 @@ func Write(path string, c Case) error {
 	h.SetMode(0o600)
 	w, err := zw.CreateHeader(h)
 	if err != nil {
-		return fmt.Errorf("create case archive: %w", err)
+		return nil, fmt.Errorf("create case archive: %w", err)
 	}
 	if _, err := w.Write(data.Bytes()); err != nil {
-		return fmt.Errorf("write case archive: %w", err)
+		return nil, fmt.Errorf("write case archive: %w", err)
 	}
 	if err := zw.Close(); err != nil {
-		return fmt.Errorf("finish case archive: %w", err)
+		return nil, fmt.Errorf("finish case archive: %w", err)
 	}
 	if archive.Len() > maxCaseSize {
-		return fmt.Errorf("case archive exceeds maximum size of %d bytes", maxCaseSize)
+		return nil, fmt.Errorf("case archive exceeds maximum size of %d bytes", maxCaseSize)
 	}
-	if err := os.WriteFile(path, archive.Bytes(), 0o600); err != nil {
-		return fmt.Errorf("write case: %w", err)
-	}
-	return nil
+	return archive.Bytes(), nil
 }
 
 func Read(path string) (Case, error) {
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return Case{}, fmt.Errorf("open case: %w", err)
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return Case{}, fmt.Errorf("stat case: %w", err)
+	}
+	if info.Size() > maxCaseSize {
+		return Case{}, fmt.Errorf("case exceeds maximum size of %d bytes", maxCaseSize)
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxCaseSize+1))
+	if err != nil {
+		return Case{}, fmt.Errorf("read case: %w", err)
 	}
 	if len(data) > maxCaseSize {
 		return Case{}, fmt.Errorf("case exceeds maximum size of %d bytes", maxCaseSize)
 	}
+	return Decode(data)
+}
+
+// Decode reads either a current ZIP capsule or a legacy plain JSON case.
+func Decode(data []byte) (Case, error) {
+	if len(data) > maxCaseSize {
+		return Case{}, fmt.Errorf("case exceeds maximum size of %d bytes", maxCaseSize)
+	}
 	if bytes.HasPrefix(data, []byte("PK\x03\x04")) {
-		data, err = archiveManifest(data)
+		manifest, err := archiveManifest(data)
 		if err != nil {
 			return Case{}, err
 		}
+		data = manifest
 	}
 	var c Case
 	dec := json.NewDecoder(bytes.NewReader(data))
@@ -171,6 +202,17 @@ func Validate(c Case) error {
 	}
 	if u.User != nil {
 		return fmt.Errorf("invalid case: target must not contain credentials")
+	}
+	targetPort := u.Port()
+	if targetPort == "" {
+		if u.Scheme == "http" {
+			targetPort = "80"
+		} else {
+			targetPort = "443"
+		}
+	}
+	if targetPort != c.Port {
+		return fmt.Errorf("invalid case: target port does not match port field")
 	}
 	port, err := strconv.Atoi(c.Port)
 	if err != nil || port < 1 || port > 65535 {
@@ -256,11 +298,22 @@ func redactDetailMap(details map[string]any) map[string]any {
 			}
 			continue
 		}
-		if nested, ok := value.(map[string]any); ok {
-			clean[key] = redactDetailMap(nested)
-		} else {
-			clean[key] = value
-		}
+		clean[key] = redactNested(value)
 	}
 	return clean
+}
+
+func redactNested(value any) any {
+	switch nested := value.(type) {
+	case map[string]any:
+		return redactDetailMap(nested)
+	case []any:
+		clean := make([]any, len(nested))
+		for i, item := range nested {
+			clean[i] = redactNested(item)
+		}
+		return clean
+	default:
+		return value
+	}
 }

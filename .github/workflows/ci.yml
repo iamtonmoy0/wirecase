@@ -23,3 +23,19 @@ jobs:
           go-version: ${{ matrix.go-version }}
       - name: Compile all packages
         run: go build ./...
+      - name: Run tests
+        run: go test ./...
+
+  docker-demo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Compose configuration
+        run: docker compose config --quiet
+      - name: Run isolated HTTP 503 demo
+        run: |
+          mkdir -p captures
+          chmod 777 captures
+          docker compose up --build --abort-on-container-exit wirecase
+          docker compose run --rm --no-deps wirecase diagnose /captures/http-503.wcase
+          docker compose down

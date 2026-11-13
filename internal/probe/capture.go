@@ -56,20 +56,25 @@ func ParseTarget(value string) (Target, error) {
 }
 
 func Capture(ctx context.Context, target Target, timeout time.Duration) (casefile.Case, error) {
-	return capture(ctx, target, timeout, true, true)
+	return capture(ctx, target, timeout, true, true, false)
+}
+
+// CaptureWithTrace adds an opt-in IPv4 UDP traceroute to an ordinary capture.
+func CaptureWithTrace(ctx context.Context, target Target, timeout time.Duration) (casefile.Case, error) {
+	return capture(ctx, target, timeout, true, true, true)
 }
 
 // CaptureRestricted runs the fixed probe set and does not follow HTTP redirects.
 func CaptureRestricted(ctx context.Context, target Target, timeout time.Duration) (casefile.Case, error) {
-	return capture(ctx, target, timeout, false, true)
+	return capture(ctx, target, timeout, false, true, false)
 }
 
 // CaptureRestrictedLegacy preserves the original signed-job probe set.
 func CaptureRestrictedLegacy(ctx context.Context, target Target, timeout time.Duration) (casefile.Case, error) {
-	return capture(ctx, target, timeout, false, false)
+	return capture(ctx, target, timeout, false, false, false)
 }
 
-func capture(ctx context.Context, target Target, timeout time.Duration, followRedirects, includeRoute bool) (casefile.Case, error) {
+func capture(ctx context.Context, target Target, timeout time.Duration, followRedirects, includeRoute, includeTrace bool) (casefile.Case, error) {
 	var idBytes [16]byte
 	if _, err := rand.Read(idBytes[:]); err != nil {
 		return casefile.Case{}, fmt.Errorf("generate case ID: %w", err)
@@ -80,6 +85,9 @@ func capture(ctx context.Context, target Target, timeout time.Duration, followRe
 	results = append(results, ipv6(ctx, target, addresses, timeout))
 	if includeRoute {
 		results = append(results, route(ctx, target, addresses, timeout))
+	}
+	if includeTrace {
+		results = append(results, Traceroute(ctx, target, addresses, timeout))
 	}
 	if target.URL.Scheme == "https" {
 		results = append(results, tlsProbe(ctx, target, timeout))

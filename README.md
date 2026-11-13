@@ -16,6 +16,8 @@ go run . diagnose home-wifi.wcase
 go run . report --output home-wifi.html home-wifi.wcase
 ```
 
+Add `--trace` to a capture to request an IPv4 UDP traceroute; this can require elevated privileges.
+
 Build a local executable:
 
 ```powershell
@@ -63,7 +65,7 @@ go run . scrub --redact-addresses home-wifi.wcase shareable.wcase
 
 Scrubbing removes URL query and fragment data. `--redact-addresses` also masks IP values in probe details. Diagnosis uses transparent rules and labels output as likely explanations, not proof. HTML reports are standalone and work without a network connection.
 
-## Signed one-shot agents
+## Signed agents and multi-vantage collection
 
 WIRECASE can prepare a narrowly scoped, signed job for another WIRECASE user to run:
 
@@ -72,19 +74,39 @@ go run . agent keygen --private signer-private.pem --public signer-public.pem
 go run . agent create-job --private-key signer-private.pem --target https://example.com --output job.json
 ```
 
-Share `job.json` and the public key with the volunteer using a trusted channel. The volunteer explicitly allows the exact hostname and supplies a non-identifying vantage label:
+For manual sharing, pass `job.json` and the public key to the volunteer with a trusted channel. The volunteer explicitly allows the exact hostname and supplies a non-identifying vantage label:
 
 ```powershell
 go run . agent run-job --public-key signer-public.pem --job job.json --allow-host example.com --label mobile --output mobile.wcase
 ```
 
-Jobs use Ed25519 signatures, expire within seven days, and are limited to DNS, TCP, IPv6, TLS, and one HTTP GET to the host root. The HTTP check does not follow redirects. Probe timeouts are capped at 15 seconds. An agent is a single-shot local command: it opens no listener, runs no shell commands, and contacts no coordinator. Each operator decides which hostname to allow. Keep the private signing key secret; the public key alone cannot authorize a job.
+For automatic collection, create a token containing at least 32 random characters and start the optional coordinator:
+
+```powershell
+$token = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).ToLowerInvariant()
+[IO.File]::WriteAllText('coordinator-token.txt', $token)
+go run . coordinator --job job.json --public-key signer-public.pem --token-file coordinator-token.txt --listen 127.0.0.1:8484 --output-dir results
+```
+
+Share the server address, token file through a trusted channel, and the public key with each volunteer. They run:
+
+```powershell
+go run . agent join --server http://127.0.0.1:8484 --token-file coordinator-token.txt --public-key signer-public.pem --allow-host example.com --label mobile
+```
+
+Use HTTPS certificates and a non-loopback listen address when volunteers connect remotely. The coordinator accepts at most 100 cases for its job. Compare the collected cases from the coordinator machine:
+
+```powershell
+go run . diff baseline.wcase results\*.wcase
+```
+
+Jobs use Ed25519 signatures, expire within seven days, and are limited to a fixed probe list, one HTTP GET to the host root, and per-probe timeouts capped at 15 seconds. Agent HTTP checks do not follow redirects. Agents open no listener and run no shell commands. Each volunteer must allow the exact hostname locally. Keep the private signing key secret; the public key alone cannot authorize a job.
 
 ## Current scope
 
-Implemented: DNS lookup, TCP connect, IPv6 connection and route-selection checks, verified TLS handshake, HTTP request timing, bounded `.wcase` archives, legacy case reading, case validation, privacy scrubbing, deterministic evidence comparison, rule-based diagnosis, offline HTML reports, and signed one-shot jobs.
+Implemented: DNS lookup, TCP connect, IPv6 connection and route-selection checks, opt-in IPv4 UDP traceroute, verified TLS handshake, HTTP request timing, bounded `.wcase` archives, legacy case reading, case validation, privacy scrubbing, multi-vantage evidence comparison, rule-based diagnosis, offline HTML reports, and signed jobs with optional coordinator collection.
 
-Planned: traceroute (requires platform-specific raw-socket support) and optional coordination for collecting volunteer results. WIRECASE does not infer definitive root causes; its local rules provide evidence-linked hints.
+Traceroute is opt-in because it needs a raw ICMP socket and may require elevated privileges; unsupported or restricted environments record it as skipped. WIRECASE does not infer definitive root causes; its local rules provide evidence-linked hints.
 
 ## Development
 
@@ -92,7 +114,7 @@ Planned: traceroute (requires platform-specific raw-socket support) and optional
 go build ./...
 ```
 
-`make build` creates a local binary; `make check` compiles every package. GitHub Actions compiles on Linux, macOS, and Windows against Go 1.22 and the current stable Go release. Pushing a `v*` tag builds release archives for Linux, macOS, and Windows on amd64 and arm64.
+`make build` creates a local binary; `make check` compiles every package. Run `go test ./...` for the unit and integration suite. GitHub Actions tests and compiles on Linux, macOS, and Windows against Go 1.22 and the current stable Go release. Pushing a `v*` tag builds release archives for Linux, macOS, and Windows on amd64 and arm64.
 
 The core uses only the Go standard library. See [docs/architecture.md](docs/architecture.md) for component boundaries, the case schema, and the signed-job model.
 

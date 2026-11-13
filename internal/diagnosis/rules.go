@@ -22,6 +22,7 @@ func Analyze(c casefile.Case) []Finding {
 	route, hasRoute := byName["route"]
 	tls, hasTLS := byName["tls"]
 	http, hasHTTP := byName["http"]
+	trace, hasTrace := byName["trace"]
 	if hasDNS && dns.Status == "failed" {
 		findings = append(findings, Finding{"DNS", "high", "Name resolution failed", "The hostname did not resolve from this environment. Check the configured resolver, DNS policy, and whether the record exists."})
 	}
@@ -36,6 +37,9 @@ func Analyze(c casefile.Case) []Finding {
 	}
 	if hasRoute && route.Status == "failed" && hasDNS && dns.Status == "ok" {
 		findings = append(findings, Finding{"Route", "high", "No route is available to the resolved addresses", "DNS succeeded, but the local network stack could not select a route for the returned addresses. Check the active network, VPN, gateway, and local firewall policy."})
+	}
+	if hasTrace && trace.Status == "ok" && trace.Details["reached"] == false {
+		findings = append(findings, Finding{"Route", "info", "Traceroute did not reach the destination", "The route probe timed out or stopped before a destination response. Routers often filter traceroute traffic, so this result does not prove that the application path is broken."})
 	}
 	if hasHTTP && http.Status == "failed" {
 		findings = append(findings, Finding{"HTTP", "high", "The HTTP request did not complete", "The transport checks did not produce an HTTP response. Review the HTTP error and the preceding probe results."})

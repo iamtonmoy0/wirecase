@@ -1,6 +1,9 @@
 # Local diagnostic captures may contain private DNS answers and URLs.
 /*.wcase
 /captures/
+/results/
+/coordinator-token.txt
+*coordinator-token*
 
 # Go build outputs.
 /wirecase
